@@ -323,10 +323,6 @@ class Unifier(object):
         self.unifier_failed = self.unifier_failed or other.unifier_failed
 
     def unify_symbol_only_reconfigutaion(self, symbol_lookup_1, symbol_lookup_2, options):
-        # This just needs some updating to work with structural
-        # change.  Need to properly set the symbol lookups to work
-        # with any structural changes.
-        assert not options.use_structural_change
         if self.unifier_failed:
             if DEBUG_UNIFICATION or PRINT_UNIFICATION_FAILURE_REASONS:
                 print "Failed due to early-unification failure"
@@ -383,6 +379,9 @@ class Unifier(object):
                 state_lookup[dest_state] = lookup
 
         modifications = Modifications(self.additions_from_node, self.additions_between_nodes)
+
+        # Set the initial symbols for the additions.
+        symbol_only_lookup_modifications_setup_lookup(modifications)
         return FST.SymbolReconfiguration(state_lookup, modifications)
 
     # There may be some issues surrounding the naming convention
@@ -955,5 +954,19 @@ def modification_state_assigment(state_lookup, symbol_lookup_1, symbol_lookup_2,
                     for x in result_symbol_lookup[edge]:
                         assert x in rejoining_edge_symbol_set
                     result_symbol_lookup[edge] = set(rejoining_edge_symbol_set)
+
+        mod.symbol_lookup = result_symbol_lookup
+
+## We don't actually need the symbols here --- we just need
+## to make sure that the symbols are disbaled.
+## Set each lookup to the empty list.  Think that might
+## cause problems elsewhere, but I can't quite remember.
+def symbol_only_lookup_modifications_setup_lookup(modifications):
+    for mod in modifications.additions_from_node + modifications.additions_between_nodes:
+        edges = mod.algebra.all_edges()
+        result_symbol_lookup = {}
+
+        for edge in edges:
+            result_symbol_lookup[edge] = []
 
         mod.symbol_lookup = result_symbol_lookup
