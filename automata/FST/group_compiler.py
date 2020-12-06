@@ -436,6 +436,10 @@ def generate_base_automata_for(groups, assignments, options):
     for i in range(len(result_automata_group)):
         automata = result_automata_group[i]
 
+        if automata is None:
+            result.append(None)
+            continue
+
         if DEBUG_GENERATE_BASE:
             print "Pre modification", sc.compute_depth_equation(automata, options)
             print "Modifications are:"
@@ -465,7 +469,7 @@ def wrap_automata(automata_components, options):
     if options.no_groups:
         # Flatten the automata compoenents into a single list of componenets.
         new_acs = []
-        for group in automata_components:
+        for group in new_components:
             for elt in group:
                 new_acs.append([elt])
         new_components = new_acs

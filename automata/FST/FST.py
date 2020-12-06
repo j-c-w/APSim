@@ -88,6 +88,17 @@ class AllPowerfulUnifier(object):
     def __init__(self, modifications):
         self.modifications = modifications
 
+        # Need to ensure that the symbol lookups are appropriately
+        # set --- it doesn't matter what they are set to, because
+        # this is all-powerful.  But the should be set so things
+        # don't crash.
+        for mod in self.modifications.additions_from_node + self.modifications.additions_between_nodes:
+            edges = mod.algebra.all_edges()
+            res_symb_lookup = {}
+            for edge in edges:
+                res_symb_lookup[edge] = 'a'
+            mod.symbol_lookup = res_symb_lookup
+
     def has_structural_additions(self):
         return len(self.modifications) > 0
 
