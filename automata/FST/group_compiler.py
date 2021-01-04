@@ -30,6 +30,7 @@ DEBUG_GENERATE_BASE = False
 DEBUG_COMPILE_TO_EXISTING = True
 DEBUG_FIND_MATCH = True
 DEBUG_REMOVE_PREFIXES = True
+DEBUG_BUILD_ACCELERATORS = True
 
 # This is a class that contains a set of accelerated
 # regular expressions.  We can use it to find which
@@ -77,6 +78,14 @@ class CompilationIndex(object):
         self.conversion_machine = conversion
         self.modifications = modifications
 
+# This is similar to the compilation index class, but is
+# for usecases where we don't need groups, e.g. the building
+# and accelerator for a set of expressions usecase.
+class AcceleratorIndex(object):
+    def __init__(self, index, conversion):
+        self.i = index
+        self.conversion = conversion
+
 class AutomataContainer(object):
     def __init__(self, automata, algebra):
         self.automata = automata
@@ -90,7 +99,7 @@ class AutomataContainer(object):
     def clone(self):
         cloned_atma = self.automata.clone() if self.automata else None
         cloned_alg = self.algebra.clone() if self.algebra else None
-        new_cont =  AutomataContainer(cloned_atma, cloned_alg)
+        new_cont = AutomataContainer(cloned_atma, cloned_alg)
         new_cont.other_groups = set(self.other_groups)
         new_cont.supported_automata = set(self.supported_automata)
 
@@ -1099,3 +1108,66 @@ def print_regex_injection_stats(groups, options):
 
     print "Number of regexes we can compile to existing regexes: ", compiling_opts
     print "Number of regexes we can't compile to existing regexes", non_compiling_opts
+
+def build_accelerators_for(automata_components, options):
+    # Stores the Algebras for the accelerators we actually need.
+    accelerators = []
+    # Stores the mappings --- from indexes in the input
+    # automata components to indexes in the accelerator list.
+    # It also stores the edge mappings --- because algebras
+    # can evolve  through structural additions as this  process
+    # runs on, edges not included in the mappings are assumed
+    # to be disabled by the symbol-only-reconfiguration.
+    mappings = []
+
+    # Generate the algebras:
+    algebras = pass_list.ComputeAlgebras.execute(automata_components, options)
+    assert len(automata_components) == 1  # Don't need  the group  abstraction
+    # here, so we don't use it.
+    for component in algebras[0]:
+        if DEBUG_BUILD_ACCELERATORS:
+            print "Trying to find an accelerator for a new pattern"
+        #  Check if there is an accelerator we can  take the component to.
+        found_pattern = False
+        pattern_index = None
+        for i in range(len(accelerators)):
+            target_accelerator = accelerators[i]
+            conversion_machine, failure_reason = \
+                    sc.compile_from_algebras(component.algebra,
+                            component.automata, target_accelerator.algebra,
+                            target_accelerator.automata, options)
+
+            # If we wanted to balance the patterns between accelerators,
+            # then we could do that here by continuing to look.  However,
+            # for the current evaluation we don't need to.
+            # (for optimal use, you would obviously want to).
+            if conversion_machine:
+                if DEBUG_BUILD_ACCELERATORS:
+                    print "Found a match with accelerator ", i
+                found_pattern = True
+                pattern_index = i
+                break
+
+        if found_pattern:
+            # Apply the required structural additions
+            # to the accelerator.
+            if conversion_machine.has_structural_modifications():
+                # Modify the accelerator we have added to
+                accelerator = accelerators[i]
+                new_accelerator_automata = alg.apply_structural_transformations(accelerator.automata, [conversion_machine.modifications], options)
+
+                # Clear the old algebra
+                accelerator.algebra = None
+                accelerator.automata = new_accelerator_automata
+                # compute the new algebra
+                pass_list.ComputeAlgebras.execute([[accelerator]], options)
+
+            # store the mapping.
+            mappings.append(AcceleratorIndex(pattern_index, conversion_machine))
+        else:
+            # Add a new accelerator and appropriate mapping.
+            mappings.append(AcceleratorIndex(len(accelerators),
+                generate_fst.generate_self_map(component, options)))
+            accelerators.append(component)
+
+    return accelerators, mappings

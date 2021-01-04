@@ -59,6 +59,7 @@ class SingleStateTranslator(object):
     def to_string(self):
         return "# Overapprox fact. " + str(self.overapproximation_factor()) + "\n" + "{" + ",".join(["" + str(x) + ": " + str(self[x]) + "" for x in range(0, 256)]) + "}"
 
+
 class EmptySingleStateTranslator(SingleStateTranslator):
     def __init__(self):
         lookup = {}
@@ -79,8 +80,25 @@ class SymbolReconfiguration(object):
         # TODO --- I expect some overapproximation here too(?)
         return 0.0
 
+    def has_structural_modifications(self):
+        return len(self.modifications) > 0
+
     def isempty(self):
         return False
+
+    # After the modifications have been assigned permanent
+    # edge numbers, we need to integrate those edge
+    # numbers into the lookup.
+    def assign_modifications(self, node_mapping):
+        for mod in self.modifications:
+            # The unification process needs to set this
+            # for symbol-only-reconfiguration.
+            assert mod.config_lookup is not None
+
+            for source in node_mapping:
+                new_node = node_mapping[source]
+                self.lookup[new_node] = mod.config_lookup[new_node]
+
 
 # This is an empty unifier for statistics gathering under
 # the assumption that our unifier is all-powerful.

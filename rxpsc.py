@@ -93,6 +93,31 @@ def compute_initial_state_count(automata_components):
     return initial_state_count
 
 
+# Given an input file of expressions we wish to accelerate,
+# build a set of accelerators for them that can either
+# use symbol-only-reconfiguration or input-stream translation
+# to achieve more accelerators.
+# Input is a set of regexes, output is a set of accelerators
+# and conversions (as specified by the flags).
+# This tries to create as few accelerators as possible,
+# but it is not hard to duplicate certain accelerators
+# that have a lot of coverage if there is more space on the FPGA.
+def build_accelerators_for(anml_file, options):
+    groups = extract_file_groups(anml_file, file_input=True)
+    extracted_components = extract_automata_components(groups, options)
+    
+    # not supported for this accelerator building. --- I expect that they
+    # would help for stateless translation approaches.
+    assert not options.use_prefix_splitting
+    assert not options.use_prefix_merging
+
+    automata_components = gc.wrap_automata(extracted_components, options)
+    accelerators, mapping = gc.build_accelerators_for(automata_components, options)
+
+    print "Number of accelerators is ", len(accelerators)
+    print "Number of patterns was ", len(automata_components[0])
+
+
 # This function is designed to take in a single ANML file,
 # and assume that every automata in that ANML file is independent.
 # Then, it assumes that /one/ regexp from that file is not implemented,
@@ -361,10 +386,15 @@ if __name__ == "__main__":
     addition_experiment_anml_zoo_parser.add_argument('anml_file')
     addition_experiment_anml_zoo_parser.add_argument('--experiments', help="How many experiments to run (at max?) by default runs all", default=None, type=int, dest='number_experiments')
 
+    build_accelerators_parser = subparsers.add_parser('build-accelerators', help="Given an ANML file, compute the smallest set of accelerators that can accelerate all the entries in that file, using some multiplexing mode (e.g.  symbol-only-reconfiguration  or input-stream translation)")
+    build_accelerators_parser.set_defaults(mode='build-accelerators')
+    build_accelerators_parser.add_argument('anml_file')
+
     options.add_to_parser(compress_parser)
     options.add_to_parser(addition_parser)
     options.add_to_parser(addition_experiment_parser)
     options.add_to_parser(addition_experiment_anml_zoo_parser)
+    options.add_to_parser(build_accelerators_parser)
 
     args = parser.parse_args()
     opts = options.create_from_args(args)
@@ -375,5 +405,7 @@ if __name__ == "__main__":
         add_to(args.addition_file, args.accelerator_file, opts)
     elif args.mode == 'addition-experiment-anml-zoo':
         run_addition_experiment_anml_zoo(args.anml_file, opts, number_experiments=args.number_experiments)
+    elif args.mode == 'build-accelerators':
+        build_accelerators_for(args.anml_file, opts)
     else:
         run_addition_experiment(args.addition_file, args.accelerator_file, opts)
