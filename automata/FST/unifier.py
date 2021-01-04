@@ -335,6 +335,13 @@ class Unifier(object):
             print self.algebra_from.str_with_lookup(symbol_lookup_1)
             print self.algebra_to.str_with_lookup(symbol_lookup_2)
 
+        # This generates lookups for symbol-only-reconfiguration ---
+        # to support something like symbol reconfigurability
+        # in the AP it can be made a bit more general IIUC.
+        # In that case it would also need different outputs
+        # anyway, so the unification phase would need to  be
+        # rejigged.
+
         for i in range(len(self.from_edges)):
             # Try and unify the individual edges  --- This should almost always
             # work.
@@ -382,6 +389,11 @@ class Unifier(object):
 
         # Set the initial symbols for the additions.
         symbol_only_lookup_modifications_setup_lookup(modifications)
+        # We also need to set the symbol reconfigurations
+        # for the added edge.  These will be added
+        # to the SymbolReconfiguration when the accelerator
+        # is updated.
+        symbol_only_reconfig_setup_modification_configurations(modifications, symbol_lookup_2)
         return FST.SymbolReconfiguration(state_lookup, modifications)
 
     # There may be some issues surrounding the naming convention
@@ -539,6 +551,13 @@ class Modification(object):
         self.algebra = algebra
         self.edges_after = edges_after
         self.symbol_lookup = None
+        # This is used by symbol reconfiguration
+        # generation to store the reconfiguraiton
+        # needed for  the expression to be supported.
+        # In symbol reconfiguration, the symbol lookup
+        # should be empty, because the edges should be
+        # disabled in the underlying accelerator by default.
+        self.config_lookup = None
 
     def __str__(self):
         if self.symbol_lookup is not None:
@@ -957,10 +976,31 @@ def modification_state_assigment(state_lookup, symbol_lookup_1, symbol_lookup_2,
 
         mod.symbol_lookup = result_symbol_lookup
 
+
+# In symbol-only-reconfiguration, we need to know the configuration
+# to store in each addition.  We store this in the
+# modification object.
+def symbol_only_reconfig_setup_modification_configurations(modifications, mod_lookup):
+    for mod in modifications.additions_from_node + modifications.additions_between_nodes:
+        config_lookups = {}
+        edges = mod.algebra.all_edges()
+
+        for edge in edges:
+            (start, end) = edge
+            if end in config_lookups:
+                # Need homogeneity.
+                assert config_lookups[end] == mod_lookup[edge]
+            else:
+                config_lookups[end] = mod_lookup[edge]
+        mod.config_lookup = config_lookups
+
+
 ## We don't actually need the symbols here --- we just need
 ## to make sure that the symbols are disbaled.
 ## Set each lookup to the empty list.  Think that might
 ## cause problems elsewhere, but I can't quite remember.
+## We do this because the underlying accelerator shouldn't
+## have any additions activated by defualt.
 def symbol_only_lookup_modifications_setup_lookup(modifications):
     for mod in modifications.additions_from_node + modifications.additions_between_nodes:
         edges = mod.algebra.all_edges()

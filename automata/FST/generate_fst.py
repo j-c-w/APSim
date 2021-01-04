@@ -29,6 +29,20 @@ def edge_label_lookup_generate(atma):
         lookup[(to, from_ind)] = symbols
     return lookup
 
+# Given a component, generate a map to itself.
+def generate_self_map(component, options):
+    if options.target == 'single-state':
+        return FST.EmptySingleStateTranslator()
+    elif options.target == 'symbol-only-reconfiguration':
+        lookup = {}
+        for edge in component.algebra.all_edges():
+            start, end = edge
+            symbols = component.automata.symbol_lookup[edge]
+            lookup[end] = symbols
+        return FST.SymbolReconfiguration(lookup, Modifications([], []))
+    elif options.target == 'perfect-unification':
+        result = FST.AllPowerfulUnifier(Modifications([], []))
+
 def generate(unification, to_atma, from_atma, options):
     assert unification is not None
     # Get the lookup tables.
