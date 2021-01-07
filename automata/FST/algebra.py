@@ -1149,6 +1149,11 @@ def leq_merge_internal_wrapper(A, B, options):
                 print "Failed  due to exceeding call depth"
             return None
 
+        if LEQ_DEBUG:
+            print "Entering new call --- Types  are:"
+            print A.type()
+            print B.type()
+
         # Do the algorithm:
         if A.isconst():
             if B.isconst():
@@ -1215,6 +1220,16 @@ def leq_merge_internal_wrapper(A, B, options):
         elif A.isbranch():
             if LEQ_DEBUG:
                 print "A is a branch"
+
+            if not B.isbranch():
+                # We can add in the extra branches overtop
+                # of most components. (a and e excluded)
+                # Let the branch case handle that by making this
+                # into a branch --- since it'll be a singleton
+                # branch, we need to not normalize it.
+                B = Branch([B])
+
+            # Here for show -- but should always be true.
             if B.isbranch():
                 # Try to do an elementwise matching
                 # within the branch.   This is copied 
@@ -1269,6 +1284,9 @@ def leq_merge_internal_wrapper(A, B, options):
                     match_count = 0
                     for i in range(len(combination)):
                         if matches[i][combination[i]]:
+                            if LEQ_DEBUG:
+                                print "Structural mod count is:"
+                                print matches[i][combination[i]].structural_modification_count()
                             match_count += 1
 
                     if match_count > max_matches:
@@ -1311,16 +1329,23 @@ def leq_merge_internal_wrapper(A, B, options):
                         # the state of the unifier until this point.
                         if this_branch_unifier:
                             # If the unifier still exists, then use it.
-                            max_macthes_unifier = this_branch_unifier
+                            max_matches_unifier = this_branch_unifier
                             max_matches_remaining_branches = unmatched_branches
-                            max_matches_assigned_branches = assigned_branches
+                            max_matches_assigned_branches = used_branches
                             max_matches_combination = combination
                             max_matches = match_count
+                            if LEQ_DEBUG:
+                                print "Set the max combination to ", max_matches_combination
+                                print "Assigned branches is ", max_matches_assigned_branches
+                                print "Remaining Branches is ", max_matches_remaining_branches
+                                print "Match count is ", match_count
                 #endfor combination in combinations
                 if LEQ_DEBUG:
                     print "Finished matching --- best assignemnt found is "
                     print max_matches_combination
                 if max_matches_unifier is None:
+                    if LEQ_DEBUG:
+                        print "DId not find a max_matches_unifier... Setting defaults to add overtop of all edges"
                     # There were not partial matches, so introduce a branch
                     # over this element as a whole.
                     max_matches_unifier = Unifier()
@@ -1348,21 +1373,17 @@ def leq_merge_internal_wrapper(A, B, options):
                 else:  # branch_last_node is not None and branch_first_node is not None
                     for branch in max_matches_remaining_branches:
                         result.add_between_nodes(B.options[branch], (branch_first_node, branch_last_node))
-            else: #endif B.isbranch()
-                # We can add in the extra branches overtop
-                # of most components. (a and e excluded)
-
-                first_edge = B.get_first_edge()
-                if B.has_accept_before_first_edge() or not first_edge:
-                    return 
-                result = Unifier()
+            else:
+                #endif B.isbranch()
+                assert False
         elif A.issum():
             # The concept here is to look at every combination
             # and see which one results in the fewest
             # structural additions --- use the one
             # that has the fewest such structural additions.
             #  In practice, we aren't going to be able to look
-            # at /every/ combination.  However,
+            # at /every/ combination.  However, we try to approximate
+            # that here.
             pass # TODO
 
         # Handle the results:
