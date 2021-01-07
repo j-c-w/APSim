@@ -1289,6 +1289,17 @@ def leq_merge_internal_wrapper(A, B, options):
                                 print matches[i][combination[i]].structural_modification_count()
                             match_count += 1
 
+                    # Ideally, we would consider more than just
+                    # pure match count here -- we should consider
+                    # which combination has the fewest introduced
+                    # states rather than the most matches.
+                    # Anyway, I'm not actually 100% sure that
+
+                    # there will be a difference for real-world
+                    # cases.
+                    # In theory there's a difference, e.g.
+                    # mapping {1, 2} to {{1, 2}, 0}.
+                    # (Obviously that is a contrived example)
                     if match_count > max_matches:
                         # Create the unifier with this sequence of
                         # assignments:
