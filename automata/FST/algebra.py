@@ -1099,6 +1099,278 @@ def prefix_merge(A, symbol_lookup_A, B, symbol_lookup_B, options):
         return None, A, B
 
 
+# This is similar to the leq functions, but it is designed
+# to be used with symbol-reconfiguration methods
+# that are much more receptive to structural modification
+# techniques than setateless translation is.
+# Again, we assume that we have a circuit for B,
+# and we are trying to implement A.  (Read A <= B)
+def leq_merge(A, B, options):
+    if LEQ_DEBUG:
+        print "Starting Unification between "
+        print A, "and", B
+        print "Using algorithm leq_merge"
+    # Require using structural change for this algorithm ---
+    # it assumes structural change at every step.  The leq
+    # algorithm is a bit better for cases where you don't
+    # want structural modification.
+    assert options.use_structural_change
+    result = leq_merge_internal_wrapper(A, B, options)
+
+    return result
+
+
+def leq_merge_internal_wrapper(A, B, options):
+    globals  = {
+            'call_depth': 0,
+            'internal_id': 0,
+            'comparison_cache': {},
+            'call_count': 0
+            }
+
+    def leq_merge_internal(A, B):
+        # Check  whether we  have the result already cached.
+        cache_pointer = (A.id, B.id)
+        this_call_id = globals['internal_id']
+        globals['internal_id']  += 1
+        if cache_pointer in globals['comparison_cache']:
+            return globals['comparison_cache'][cache_pointer]
+
+        globals['call_depth'] += 1
+        globals['call_count'] += 1
+        if globals['call_count'] > options.leq_calls_threshold:
+            compilation_statistics.recursion_depth_exceeded += 1
+            if LEQ_DEBUG:
+                print "Failed due to exceeding call threshold"
+            return None
+        if globals['call_depth'] > options.leq_call_depth_threshold:
+            compilation_statistics.recursion_depth_exceeded += 1
+            if LEQ_DEBUG:
+                print "Failed  due to exceeding call depth"
+            return None
+
+        # Do the algorithm:
+        if A.isconst():
+            if B.isconst():
+                result = Unifier()
+                result.add_edges(A.all_edges(), B.all_edges(), options)
+            else:
+                # Need to add a modification --- this algorithm
+                # is designed to almost never fail completely.
+
+                # That said, there are a few ways for this to
+                # fail completely:
+                first_edge = B.first_edge()
+
+                if B.has_first_edge():
+                    # In this case, we can do this compilation
+                    # by creating a branch over the omitted
+                    # nodes.
+                    unifier = Unifier()
+                    unifier.add_from_node(A, B.first_edge())
+                    result = unifier
+                else:
+                    result = None
+                    compilation_statistics.no_branch_over_node_mmodifiers += 1
+        elif A.isaccept():
+            # Can't aritificially induce an accept on B.
+            # Expect that to be done by the sum case.
+            if B.isaccept():
+                result = Unifier()
+            else:
+                compilation_statistics.accept_to_non_accept += 1
+                result = None
+        elif A.isend():
+            # Unlike the accept case, this can easily be
+            # changed here by disabling the next edge
+            # in B in the unifier.
+            first_node_in_b = B.get_first_node()
+            if B.isend():
+                result = Unifier()
+            else:
+                result = Unifier()
+                result.add_disabled_edges(B.first_edge())
+        elif A.isproduct():
+            if B.isproduct():
+                # Try to unify within the loop.
+                result = leq_merge_internal(A.e1, B.e1)
+            else:
+                result = None
+
+            # If we couldn't do the unification within
+            # that loop, try disabling the first edge
+            # of B, and then adding an insert.
+            if not result:
+                first_edge = B.first_edge()
+                # We can't disable things without
+                # edges.
+                if first_edge is None:
+                    result = None
+                else:
+                    first_node = B.get_first_node()
+
+                    result = Unifier()
+                    result.add_disabled_edges(first_edge)
+                    result.add_from_node(first_node)
+        elif A.isbranch():
+            if LEQ_DEBUG:
+                print "A is a branch"
+            if B.isbranch():
+                # Try to do an elementwise matching
+                # within the branch.   This is copied 
+                # from the leq function with heavy modification.
+                # Because this method is aimed at symbol reconfiguration, 
+                # it doesn't support two virtual branches
+                # targetting the same physical branch.
+
+                # Try all matches --- likely need some kind
+                # of cutoff here.
+                elements_A = A.options
+                elements_B = B.options
+                matches = [None] * len(elements_A)
+                for i in range(len(elements_A)):
+                    matches[i] = [None] * len(elements_B)
+
+                    for j in range(len(elements_B)):
+                        if LEQ_DEBUG:
+                            print "Performing initial checks to build matrix for branch at call " + str(this_call_id) + ":"
+                            print "Checking ", elements_A[i]
+                            print "Checking ", elements_B[j]
+                        matches[i][j] = leq_merge_internal(elements_A[i], elements_B[j])
+
+                # Now, try and find some match for each i element in A.
+                perm_count = 0
+
+                # This could be made smarter, by making some sensible guesses
+                # about which permutations might work --- there are definitely
+                # constraints here, e.g. we expect the matches matrix
+                # to be quite sparse.
+                if LEQ_DEBUG:
+                    print "Unification matrix is: (call " + str(this_call_id) + ")"
+                    for row in matches:
+                        print row
+
+                # Tried the heuristics, because the unifier list is limited
+                # in length, that turned out to be the true limit here.
+                # Might come back to this, but ISTM that the real benefit
+                # would be in better heurisitics for trimming unifier lists.
+                # heuristic_perms = list(permutations_with_heuristics(matches))
+                max_matches = 0
+                max_matches_unifier = None
+                max_matches_combination = None
+                max_matches_remaining_branches = None
+                max_matches_assigned_branches = None
+                for combination in permutations(len(elements_A), range(len(elements_B))):
+                    perm_count += 1
+                    if perm_count > PERMUTATION_THRESHOLD:
+                        print "Warning: Permutation fail due to excessive numbers"
+                        break
+                    # check if the combination is good.
+                    match_count = 0
+                    for i in range(len(combination)):
+                        if matches[i][combination[i]]:
+                            match_count += 1
+
+                    if match_count > max_matches:
+                        # Create the unifier with this sequence of
+                        # assignments:
+                        this_branch_unifier = Unifier()
+                        # Keep track of which of the
+                        # hardware branches we are using
+                        used_branches = []
+
+                        # Keep track of which of the virtual
+                        # branches that we didn't find matches
+                        # for.
+                        unmatched_branches = []
+                        for i in range(len(combination)):
+                            if matches[i][combination[i]]:
+                                used_branches.append(combination[i])
+                                this_branch_unifier.unify_with(matches[i][combination[i]])
+                            else:
+                                unmatched_branches.append(i)
+
+                        # Disable the other edges:
+                        for i in range(len(elements_B)):
+                            if i not in used_branches:
+                                B_first_edges = elements_B[i].first_edge()
+                                if B_first_edges:
+                                    this_branch_unifier.add_disabled_edges(B_first_edges)
+                                else:
+                                    # If the first edge isn't set,
+                                    # then I think we can assume that an accept is somehow happening right away?
+                                    # like this: 1 + {a, 1 + a}?
+                                    # TBH not too sure why this case
+                                    # came up, but a safe thing to do
+                                    # is reject this match.
+                                    is_match = False
+                                    this_branch_unifier = None
+
+                        # Some unifications could fail
+                        # in the last stage, so don't update
+                        # the state of the unifier until this point.
+                        if this_branch_unifier:
+                            # If the unifier still exists, then use it.
+                            max_macthes_unifier = this_branch_unifier
+                            max_matches_remaining_branches = unmatched_branches
+                            max_matches_assigned_branches = assigned_branches
+                            max_matches_combination = combination
+                            max_matches = match_count
+                #endfor combination in combinations
+                if LEQ_DEBUG:
+                    print "Finished matching --- best assignemnt found is "
+                    print max_matches_combination
+                if max_matches_unifier is None:
+                    # There were not partial matches, so introduce a branch
+                    # over this element as a whole.
+                    max_matches_unifier = Unifier()
+                    max_matches_remaining_branches = range(len(B.options))
+                    max_matches_assigned_branches = []
+
+                # This is a unifier with the appropriate
+                # branches disabled.
+                result = max_matches_unifier
+
+                # Now, add the branches to the unifier.
+                branch_last_node = B.get_last_node()
+                branch_first_node = B.get_first_node()
+
+                if branch_last_node is None or branch_first_node is None:
+                    # Then all the branch arms are stuff
+                    # like 1 + e
+                    if B.has_first_edge():
+                        for branch in max_matches_remaining_branches:
+                            result.add_from_node(B.options[branch], B.first_edge())
+                    else:
+                        # Can't do this since
+                        # this has no first edge to build from.
+                        result = None
+                else:  # branch_last_node is not None and branch_first_node is not None
+                    for branch in max_matches_remaining_branches:
+                        result.add_between_nodes(B.options[branch], (branch_first_node, branch_last_node))
+            else: #endif B.isbranch()
+                # We can add in the extra branches overtop
+                # of most components. (a and e excluded)
+
+                first_edge = B.get_first_edge()
+                if B.has_accept_before_first_edge() or not first_edge:
+                    return 
+                result = Unifier()
+        elif A.issum():
+            # The concept here is to look at every combination
+            # and see which one results in the fewest
+            # structural additions --- use the one
+            # that has the fewest such structural additions.
+            #  In practice, we aren't going to be able to look
+            # at /every/ combination.  However,
+            pass # TODO
+
+        # Handle the results:
+        globals['comparison_cache'][cache_pointer] = result
+        globals['call_depth'] -= 1
+        return result
+    return leq_merge_internal(A, B)
+
 # This is an implementation of the comparison operator ---
 # the concept is that if A < B, then  we can use the circuit
 # for B to implement A.  This does not have to do with
@@ -1852,6 +2124,9 @@ def permutations(i, j):
     # number of examples that actually unify with
     # multiple arms to one branch or vice-versa
     # is extremely small.
+    # And now that it is permutations, it is not just
+    # an approximation --- leq_merge relies on this
+    # being a permutations function now.
     return itertools.permutations(j, i)
 
 # Yield the permutations we should try and unify between two different

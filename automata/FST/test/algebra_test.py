@@ -426,5 +426,12 @@ class AcceptRateTest(unittest.TestCase):
         self.assertTrue(alg.acceptance_rate(t, slookup) < 0.03)
         self.assertTrue(alg.acceptance_rate(t2, slookup) < 0.002)
 
+class LEQMergeTest(unittest.TestCase):
+    def test_branch(self):
+        t1 = Branch([Const(1, [(0, 1)]), Const(1, [(0, 1)])])
+        t2 = Branch([Const(1, [(0, 1)])])
+
+        print alg.leq_merge(t1, t2, EmptyOptions)
+
 if __name__ == "__main__":
     unittest.main()
