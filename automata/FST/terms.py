@@ -865,8 +865,25 @@ class Branch(DepthEquation):
     def isbranch(self):
         return True
 
+    # This is a special case --- a branch should always
+    # have the same last node, however, some of the bits
+    # of the branch may end.
+    # This checks that the last node of each non-ending
+    # branch is the same.
     def get_last_node(self):
-        return None
+        last_node = None
+        for opt in self.options:
+            subnode = opt.get_last_node()
+            if subnode is not None:
+                if last_node is None:
+                    last_node = subnode
+                # Expect every branch that has a
+                # last node to have the same ending
+                # node --- this is not true e.g. if a branch
+                # arm ends.
+                assert last_node == subnode
+        return last_node
+
 
     def _get_first_node(self):
         first_sub_nodes = set()
