@@ -1122,6 +1122,11 @@ def build_accelerators_for(automata_components, options):
 
     # Generate the algebras:
     algebras = pass_list.ComputeAlgebras.execute(automata_components, options)
+    # Do an inverse sort by size --- bigger accelerators can tend
+    # to support smaller ones, and since this is not a cross
+    # compilation algorithm, this will give us a better approximation.
+    algebras = pass_list.SortBySize.execute(automata_components, options)
+
     assert len(automata_components) == 1  # Don't need  the group  abstraction
     # here, so we don't use it.
     for component in algebras[0]:
@@ -1165,6 +1170,10 @@ def build_accelerators_for(automata_components, options):
             # store the mapping.
             mappings.append(AcceleratorIndex(pattern_index, conversion_machine))
         else:
+            if DEBUG_BUILD_ACCELERATORS:
+                print "No accelerator found for algebra "
+                print component.algebra
+                print "Adding to the accelerators list."
             # Add a new accelerator and appropriate mapping.
             mappings.append(AcceleratorIndex(len(accelerators),
                 generate_fst.generate_self_map(component, options)))
