@@ -99,7 +99,6 @@ class UnifierList(object):
         # failed it.
         return len(self.unifiers) == 0
 
-
     def append_unifiers(self, unifiers):
         if unifiers.isunifierlist:
             for other_unifier in unifiers.unifiers:
