@@ -28,6 +28,7 @@ class Options(object):
 
         self.leq_iterations_file = None
         self.leq_calls_threshold = 100000
+        self.leq_call_depth_threshold = 2000
         self.prefix_size_threshold = 5
         self.prefix_acceptance_rate_threshold = 0.10
         self.no_leq_heuristics = True
@@ -160,6 +161,7 @@ def add_to_parser(parser):
     parser.add_argument('--profile', action='store_true', default=False, dest='profile', help='Run the profiler')
     parser.add_argument('--leq-iterations-file', default=None, dest='leq_iterations_file', help='Dump file for the number of iterations of the LEQ operation')
     parser.add_argument('--leq-calls-threshold', default=100000, dest='leq_calls_threshold', help='Number of recursive calls to make before giving up in the LEQ computation')
+    parser.add_argument('--leq-call-depth-threshold', default=2000, dest='leq_call_depth_threshold', help='Max permissible recursion depth when comparing algebras')
     parser.add_argument('--print-file-info', default=False, dest='print_file_info', help='Print the file information', action='store_true')
     parser.add_argument('--no-structural-change', default=False, dest='no_structural_change', help="Don't use structural change.", action='store_true')
 
