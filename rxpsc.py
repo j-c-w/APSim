@@ -116,6 +116,13 @@ def build_accelerators_for(anml_file, options):
 
     print "Number of accelerators is ", len(accelerators)
     print "Number of patterns was ", len(automata_components[0])
+    if options.print_algebras:
+        print "Derived accelerators are:"
+        for accelerator in accelerators:
+            print accelerator.algebra
+
+    # Print the counters e.g.  with failure reasons.
+    print_compile_counters(options)
 
 
 # This function is designed to take in a single ANML file,
@@ -284,7 +291,6 @@ def add_to_check(automata_components_from, automata_components_to, options):
         dump_machines(original_machines, original_folder, options)
 
 
-
 def compress(file_groups, file_input=False, options=None):
     start_time = time.time()
     file_groups = extract_file_groups(file_groups, file_input)
@@ -331,6 +337,19 @@ def compress(file_groups, file_input=False, options=None):
         print "Successfully  compiled", compilation_statistics.algebras_compiled, "algebras"
         print "Avoided ", compilation_statistics.cutoff_comparisons, "detailed comparison attempts with heuristics"
         print "Of the algebras ", compilation_statistics.failed_algebra_computations, " failed (likely) due to incompleteness of current implementation"
+
+    print_compile_counters(options)
+
+    if options.time:
+        print "Time taken was", time.time() - start_time
+
+
+def print_compile_counters(options):
+    print_unification_statistics(options)
+    print_leq_failure_reasons(options)
+
+
+def print_unification_statistics(options):
     if options.print_unification_statistics:
         print "Single state completeness fails", compilation_statistics.ssu_complete_mapping_failed
         print "Single state correctness fails", compilation_statistics.ssu_correct_mapping_failed
@@ -343,6 +362,7 @@ def compress(file_groups, file_input=False, options=None):
         print "Single state comparisons avoided with heuristics", compilation_statistics.ssu_heuristic_fail
         print "Single state successes", compilation_statistics.ssu_success
 
+def print_leq_failure_reasons(options):
     if options.print_leq_failure_reasons:
         prefix = "LEQ Failure Reason:"
         print prefix, "Recursion Depth Exceeded", compilation_statistics.recursion_depth_exceeded
@@ -357,8 +377,7 @@ def compress(file_groups, file_input=False, options=None):
         print prefix, "Const to Sum", compilation_statistics.const_to_sum_failed
         print prefix, "Sum to Sum", compilation_statistics.sum_to_const_failed
 
-    if options.time:
-        print "Time taken was", time.time() - start_time
+        print prefix, "Can't Insert Branch over node modifier/complex branch", compilation_statistics.no_branch_over_node_mmodifiers
 
 
 if __name__ == "__main__":
