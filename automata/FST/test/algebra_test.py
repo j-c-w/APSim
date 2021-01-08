@@ -431,7 +431,10 @@ class LEQMergeTest(unittest.TestCase):
         t1 = Branch([Const(1, [(0, 1)]), Const(1, [(0, 1)])])
         t2 = Branch([Const(1, [(0, 1)])])
 
-        print alg.leq_merge(t1, t2, EmptyOptions)
+        u = alg.leq_merge(t1, t2, EmptyOptions)
+        self.assertEqual(u.structural_modification_count(), 1)
+        u2 = alg.leq_merge(t2, t1, EmptyOptions)
+        self.assertEqual(u2.structural_modification_count(), 0)
 
 if __name__ == "__main__":
     unittest.main()
