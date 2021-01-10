@@ -29,6 +29,11 @@ class DepthEquation(object):
     def isproduct(self):
         return False
 
+    def ismodifier(self):
+        # Modifier means that this doesn't represent
+        # a state in itself.
+        return self.isend() or self.isaccept()
+
     def issum(self):
         return False
 
@@ -771,6 +776,15 @@ class Branch(DepthEquation):
         super(Branch, self).__init__()
 
         self.options = [opt for opt in options if opt]
+        # Sanity check -- might be too computationally
+        # expensive to keep.
+        for opt in self.options:
+            if opt.isaccept():
+                assert False
+            if opt.isend():
+                assert False
+            if opt.has_accept_before_first_edge():
+                assert False
         self.isnormal = False
         self._size = None
         self.iscompressed = False
