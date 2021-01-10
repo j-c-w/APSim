@@ -29,6 +29,7 @@ class Options(object):
         self.leq_iterations_file = None
         self.leq_calls_threshold = 100000
         self.leq_call_depth_threshold = 2000
+        self.leq_mode = 'Match'
         self.prefix_size_threshold = 5
         self.prefix_acceptance_rate_threshold = 0.10
         self.no_leq_heuristics = True
@@ -86,6 +87,7 @@ def create_from_args(args):
     group_compiler.MODIFICATION_LIMIT = args.modification_limit
     group_compiler.DEBUG_COMPILE_TO_EXISTING = args.debug_compile_to_existing
     group_compiler.DEBUG_REMOVE_PREFIXES = args.debug_remove_prefixes
+    group_compiler.DEBUG_BUILD_ACCELERATORS = args.debug_build_accelerators
 
     opts = Options()
     opts.output_folder = args.output_folder
@@ -129,6 +131,7 @@ def create_from_args(args):
     opts.cross_compilation_threading = args.cross_compilation_threading
     opts.size_difference_cutoff_factor = args.size_difference_cutoff
     opts.no_leq_heuristics = args.no_leq_heuristics
+    opts.leq_mode = args.leq_mode
     opts.memory_debug = args.memory_debug
     opts.time = args.time
     opts.algebra_size_threshold = args.algebra_size_threshold
@@ -174,6 +177,7 @@ def add_to_parser(parser):
     parser.add_argument('--cross-compilation-threading', default=0,dest='cross_compilation_threading', help='How many threads should be used for genreating comparisons. 0 disables the thread pool entirely.', type=int)
     parser.add_argument('--size-difference-cutoff-factor', default=5.0, dest='size_difference_cutoff', help='If algebra X is this many times larger than algebra Y, then assume that X </= Y, 0 disables', type=float)
     parser.add_argument('--no-leq-heuristics', default=False, dest='no_leq_heuristics', action='store_true', help='Use heuristics to skip some of the comparisons that seem likely to fail anyway')
+    parser.add_argument('--leq-mode', default='Match', dest='leq_mode', choices=['Match', 'Merge'], help='Which LEQ algorihtm mode to use --- note that merge only works with structural modifications enabled.  Also note that not all comparisons use the LEQ algorithms.  Merge is designed to fail merging very rarely, and to use additions judiciously.  Match is designed to fail frequently and only use small additions.')
     parser.add_argument('--modification-limit', default=10, dest='modification_limit', type=int, help='Limit the number of modifications to each accelerator')
     parser.add_argument('--no-unification-heuristics', default=False, dest='no_unification_heuristics', action='store_true', help='Use heuristcs to help skip unifications likely to fail anyway.')
     parser.add_argument('--no-inline-unification-heuristics', default=False, dest='no_inline_unification_heuristics', action='store_true', help='Use no inline heuristics')
@@ -193,6 +197,7 @@ def add_to_parser(parser):
     parser.add_argument('--print-compile-time', action='store_true', dest='print_compile_time', default=False)
     parser.add_argument('--debug-compile-to-existing', action='store_true', dest='debug_compile_to_existing', default=False)
     parser.add_argument('--debug-remove-prefixes', action='store_true', dest='debug_remove_prefixes', default=False)
+    parser.add_argument('--debug-build-accelerators', action='store_true', dest='debug_build_accelerators', default=False)
     parser.add_argument('--print-unification-statistics', action='store_true', dest='print_unification_statistics', default=False)
     parser.add_argument('--print-leq-failure-reasons', default=False, dest='print_leq_failure_reasons', action='store_true', help='Print counters indicating why various equations failed the LEQ phase')
     parser.add_argument('--print-unification-failure-reasons', default=False, dest='print_unification_failure_reasons', action='store_true', help='Print reasons that unifiers fail within the single state unification method.')

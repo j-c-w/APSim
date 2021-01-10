@@ -103,7 +103,13 @@ def compile_from_algebras(eqn_from, automata_from, eqn_to, automata_to, options)
         lookup_table_from = None
         lookup_table_to = None
 
-    unification = algebra.leq_unify(eqn_from, eqn_to, options, from_symbols_lookup=lookup_table_from, to_symbols_lookup=lookup_table_to)
+    if options.leq_mode == 'Match':
+        unification = algebra.leq_unify(eqn_from, eqn_to, options, from_symbols_lookup=lookup_table_from, to_symbols_lookup=lookup_table_to)
+    elif options.leq_mode == 'Merge':
+        unification = algebra.leq_merge(eqn_from, eqn_to, options)
+    else:
+        # Unknown unification type
+        assert False
 
     if unification is None:
         return None, generate_fst.GenerationFailureReason("Structural Failure")
