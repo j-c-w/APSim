@@ -1129,18 +1129,32 @@ def build_accelerators_for(automata_components, options):
 
     assert len(automata_components) == 1  # Don't need  the group  abstraction
     # here, so we don't use it.
+    index = 0
     for component in algebras[0]:
+        index += 1
         if DEBUG_BUILD_ACCELERATORS:
             print "Trying to find an accelerator for a new pattern"
+            print "Onto pattern", index, "of", len(algebras[0])
+            print accelerators[0].algebra if len(accelerators) > 0 else ""
         #  Check if there is an accelerator we can  take the component to.
+        if component is None:
+            # This algebra was unsupported for some reason, likely
+            # due to fragility of algebra generation from automata
+            compilation_statistics.algebras_skipped += 1
+            continue
+
         found_pattern = False
         pattern_index = None
         for i in range(len(accelerators)):
             target_accelerator = accelerators[i]
+            assert target_accelerator.algebra is not None
+            assert component.algebra is not None
             conversion_machine, failure_reason = \
                     sc.compile_from_algebras(component.algebra,
                             component.automata, target_accelerator.algebra,
                             target_accelerator.automata, options)
+            if DEBUG_BUILD_ACCELERATORS and conversion_machine is None:
+                print "Failed to compile --- failure reason is ", failure_reason
 
             # If we wanted to balance the patterns between accelerators,
             # then we could do that here by continuing to look.  However,
@@ -1177,6 +1191,7 @@ def build_accelerators_for(automata_components, options):
             # Add a new accelerator and appropriate mapping.
             mappings.append(AcceleratorIndex(len(accelerators),
                 generate_fst.generate_self_map(component, options)))
+            assert component is not None
             accelerators.append(component)
 
     return accelerators, mappings

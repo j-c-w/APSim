@@ -1,5 +1,6 @@
 # This is a module with some stats.
 algebras_compiled = 0
+algebras_skipped = 0
 
 # Unifier
 ssu_complete_mapping_failed = 0
