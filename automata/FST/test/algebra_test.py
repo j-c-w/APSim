@@ -436,5 +436,37 @@ class LEQMergeTest(unittest.TestCase):
         u2 = alg.leq_merge(t2, t1, EmptyOptions)
         self.assertEqual(u2.structural_modification_count(), 0)
 
+    def test_sums_simpler(self):
+        t1 = Sum([Const(2, [(0, 1), (1, 2)])]).normalize()
+        t2 = Sum([Const(2, [(10, 11), (11, 12)])]).normalize()
+        u = alg.leq_merge(t1, t2, EmptyOptions)
+        self.assertEqual(u.structural_modification_count(), 0)
+        self.assertEqual(u.get_edge_mapping()[(0, 1)], (10, 11))
+
+    def test_arm_to_branch(self):
+        t1 = Sum([Const(2, [(0, 1), (1, 2)])]).normalize()
+        t2 = Branch([Const(1, [(10, 11)]), Const(2, [(10, 13), (13, 11)])]).normalize()
+
+        u = alg.leq_merge(t1, t2, EmptyOptions)
+        print u.get_edge_mapping()
+        self.assertEqual(u.structural_modification_count(), 0)
+        self.assertEqual(u.get_edge_mapping()[(0, 1)], (10, 13))
+
+    def test_simple_sums_2(self):
+        t1 = Sum([Const(1, [(0, 1)]), Const(1, [(1, 2)])])
+        t2 = Sum([Const(1, [(10, 11)]), Branch([Const(1, [(11, 12)]), Const(1, [(11, 12)])])])
+        u = alg.leq_merge(t1, t2, EmptyOptions)
+        self.assertEqual(u.structural_modification_count(), 0)
+        self.assertEqual(u.get_edge_mapping()[(0, 1)], (10, 11))
+
+    def test_simple_sums(self):
+        t1 = Sum([Const(1, [(0, 1)]), Const(1, [(1, 2)]), Const(1, [(2, 3)]), Accept(), End()])
+        # 1 + {1, 2} + 1 + a + e
+        t2 = Sum([Const(1, [(10, 11)]), Branch([Const(1, [(11, 12)]), Sum([Const(1, [(11, 13)]), Const(1, [(13, 12)])])]), Const(1, [(12, 15)]), Accept(), End()])
+        u = alg.leq_merge(t1, t2, EmptyOptions)
+        self.assertEqual(u.structural_modification_count(), 0)
+        self.assertEqual(u.get_edge_mapping()[(2, 3)], (12, 15))
+        self.assertEqual(u.get_edge_mapping()[(1, 2)], (11, 12))
+
 if __name__ == "__main__":
     unittest.main()
