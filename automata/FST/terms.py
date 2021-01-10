@@ -24,6 +24,7 @@ class DepthEquation(object):
         self._cached_first_node = None
         self._cached_accepting_nodes = None
         self._cached_ends_with_end = None
+        self._cached_state_count = None
 
     def isproduct(self):
         return False
@@ -97,6 +98,11 @@ class DepthEquation(object):
 
     def equals(self, other, selflookup=None, otherlookup=None):
         assert False
+
+    def state_count(self):
+        if self._cached_state_count is None:
+            self._cached_state_count = self._state_count()
+        return self._cached_state_count
 
     def loop_sizes(self):
         if self._cached_loop_sizes is not None:
@@ -211,6 +217,9 @@ class Product(DepthEquation):
         self.isnormal = False
         self._size = None
         self._last_node = None
+
+    def _state_count(self):
+        return self.e1._state_count()
 
     def _ends_with_end(self):
         return False
@@ -332,6 +341,9 @@ class Sum(DepthEquation):
         self.isnormal = False
         self._size = None
         self._last_node = None
+
+    def _state_count(self):
+        return sum([x._state_count() for x in self.e1])
 
     def _ends_with_end(self):
         return self.e1[-1].ends_with_end()
@@ -631,6 +643,9 @@ class Const(DepthEquation):
         self._size = None
         self.isnormal = val <= 1
 
+    def _state_count(self):
+        return self.val + 1
+
     def _ends_with_end(self):
         return False
 
@@ -757,6 +772,9 @@ class Branch(DepthEquation):
         self.isnormal = False
         self._size = None
         self.iscompressed = False
+
+    def _state_count(self):
+        return sum([x.state_count() for x in self.options])
 
     def _ends_with_end(self):
         for opt in self.options:
@@ -1046,6 +1064,9 @@ class Accept(DepthEquation):
         super(Accept, self).__init__()
         self.isnormal = True
 
+    def _state_count(self):
+        return 0
+
     def _ends_with_end(self):
         return False
 
@@ -1131,11 +1152,17 @@ class End(DepthEquation):
         super(End, self).__init__()
         self.isnormal = True
 
+    def _state_count(self):
+        return 0
+
     def _ends_with_end(self):
         return True
 
     def _get_accepting_nodes(self):
         return set()
+
+    def _get_first_node(self):
+        return None
 
     def clone(self):
         return End()
