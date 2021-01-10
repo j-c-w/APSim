@@ -201,6 +201,9 @@ class Unifier(object):
         self.symbol_lookup_from = symbol_lookup_from
         self.symbol_lookup_to = symbol_lookup_to
 
+    def __str__(self):
+        return "Mapping: " + str(self.get_edge_mapping()) + ", Mods: " + str([str(x) for x in self.all_modifications()])
+
     def mapping_heuristic_fail(self, symbol_lookup_from, symbol_lookup_to, options):
         return mapping_heuristic_fail(self.from_edges, self.to_edges, symbol_lookup_from, symbol_lookup_to, options)
 
@@ -214,6 +217,22 @@ class Unifier(object):
         for mod in self.additions_between_nodes + self.additions_from_node:
             result = result.union(mod.algebra.all_edges())
         return result
+
+    def get_edge_mapping(self):
+        assert len(self.from_edges) == len(self.to_edges)
+        mapping = {}
+        for i in range(len(self.from_edges)):
+            mapping[self.from_edges[i]] = self.to_edges[i]
+        return mapping
+
+    def all_modifications(self):
+        return self.additions_between_nodes + self.additions_from_node
+
+    def structural_modification_state_count(self):
+        state_count = 0
+        for mod in self.all_modifications():
+            state_count += mod.algebra.state_count()
+        return state_count
 
     def structural_modification_count(self):
         return len(self.additions_between_nodes) + len(self.additions_from_node)
