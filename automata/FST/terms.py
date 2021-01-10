@@ -514,10 +514,12 @@ class Sum(DepthEquation):
         found_last_node = None
         index = len(self.e1) - 1
         while found_last_node is None and index >= 0:
-            found_last_node = self.e1[index].get_last_node()
-            if found_last_node is None and self.e1[index].isend():
-                self._last_node = None
-                return None
+            if self.e1[index].isaccept():
+                index -= 1
+                continue
+            else:
+                found_last_node = self.e1[index].get_last_node()
+                break
 
             index -= 1
 
@@ -899,7 +901,11 @@ class Branch(DepthEquation):
                 # last node to have the same ending
                 # node --- this is not true e.g. if a branch
                 # arm ends.
-                assert last_node == subnode
+                if last_node != subnode:
+                    print self
+                    print last_node
+                    print subnode
+                    assert False
         return last_node
 
 
