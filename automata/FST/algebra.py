@@ -236,7 +236,7 @@ def generate_internal(nodes, edges, start, accept_states, end_states, branches_a
                 # within the loop.
 
                 # Put those on a stack and recurse, we could iterate,
-                # but that seems messier, and we kinda figure, 
+                # but that seems messier, and we kinda figure,
                 # how deep will this stack really go? i.e. for real
                 # automata, how many nested loops will there be?
                 # I figure not many.
@@ -257,7 +257,7 @@ def generate_internal(nodes, edges, start, accept_states, end_states, branches_a
                 # into the loop algebra to the appropriate term.
 
                 # We need to construct a branch --- critically,
-                # we need to apply the right edge to the end 
+                # we need to apply the right edge to the end
                 # of each algebra.
 
                 if loop_algebra.isbranch():
@@ -441,7 +441,7 @@ def generate_internal(nodes, edges, start, accept_states, end_states, branches_a
                 del algebra_stack_nodes[-1]
 
                 if CACHE_ENABLED:
-                    # Cache the resutls in the local cache 
+                    # Cache the resutls in the local cache
                     # if we are not returning.
                     # Don't put this into the cache unless
                     # it is the last time we need to compress
@@ -835,7 +835,7 @@ def prefix_unify_internal_wrapper(A, symbol_lookup_A, B, symbol_lookup_B, option
                         assignment_indicies[b_index] = a_index
                         assert unifier is not None
                         unifiers[b_index] = unifier
-            
+
             # We could do a better job here by trying to decide
             # which unifiers to proceed with (all of them?) instead
             # we'll just return one for the moment.
@@ -1128,7 +1128,11 @@ def leq_merge_internal_wrapper(A, B, options):
             'call_count': 0
             }
 
-    def leq_merge_internal(A, B):
+    # Merge A to B.  should_split_sums refers to the algorithms
+    # trying to do the merge, when they come across sums
+    # 1 + 1 and 1 + 1, should they try all the sub-combinations?
+    # Used internally to avoid infinite recursion.
+    def leq_merge_internal(A, B, should_split_sums=True):
         # Check  whether we  have the result already cached.
         cache_pointer = (A.id, B.id)
         this_call_id = globals['internal_id']
@@ -1153,30 +1157,28 @@ def leq_merge_internal_wrapper(A, B, options):
             print "Entering new call --- Types  are:"
             print A.type()
             print B.type()
+            print "Call ID is ", globals['internal_id']
+            print A
+            print B
 
         # Do the algorithm:
-        if A.isconst():
+        if A.isconst() and not B.isbranch():
+            # Most of these cases are independent of the type
+            # of B, however, the arm to branch case requires
+            # basically the same algorithm as the branch-to-branch
+            # case, so we avoid that here.
             if B.isconst():
                 result = Unifier()
                 result.add_edges(A.all_edges(), B.all_edges(), options)
             else:
                 # Need to add a modification --- this algorithm
                 # is designed to almost never fail completely.
-
-                # That said, there are a few ways for this to
-                # fail completely:
-                first_edge = B.first_edge()
-
-                if B.has_first_edge():
-                    # In this case, we can do this compilation
-                    # by creating a branch over the omitted
-                    # nodes.
-                    unifier = Unifier()
-                    unifier.add_from_node(A, B.first_edge())
-                    result = unifier
-                else:
-                    result = None
-                    compilation_statistics.no_branch_over_node_mmodifiers += 1
+                # However, I've decided that this case doesn't have
+                # enough context to successfully do a modification ---
+                # we'd rather just skip and let a parent case, most likely
+                # issum() deal with the consequences.
+                result = None
+                compilation_statistics.no_branch_over_node_mmodifiers += 1
         elif A.isaccept():
             # Can't aritificially induce an accept on B.
             # Expect that to be done by the sum case.
@@ -1217,7 +1219,7 @@ def leq_merge_internal_wrapper(A, B, options):
                     result = Unifier()
                     result.add_disabled_edges(first_edge)
                     result.add_from_node(first_node)
-        elif A.isbranch():
+        elif A.isbranch() or B.isbranch():
             if LEQ_DEBUG:
                 print "A is a branch"
 
@@ -1229,12 +1231,15 @@ def leq_merge_internal_wrapper(A, B, options):
                 # branch, we need to not normalize it.
                 B = Branch([B])
 
+            if not A.isbranch():
+                A = Branch([A])
+
             # Here for show -- but should always be true.
             if B.isbranch():
                 # Try to do an elementwise matching
-                # within the branch.   This is copied 
+                # within the branch.   This is copied
                 # from the leq function with heavy modification.
-                # Because this method is aimed at symbol reconfiguration, 
+                # Because this method is aimed at symbol reconfiguration,
                 # it doesn't support two virtual branches
                 # targetting the same physical branch.
 
@@ -1271,6 +1276,7 @@ def leq_merge_internal_wrapper(A, B, options):
                 # would be in better heurisitics for trimming unifier lists.
                 # heuristic_perms = list(permutations_with_heuristics(matches))
                 max_matches = 0
+                min_added_states = 10000000
                 max_matches_unifier = None
                 max_matches_combination = None
                 max_matches_remaining_branches = None
@@ -1282,25 +1288,16 @@ def leq_merge_internal_wrapper(A, B, options):
                         break
                     # check if the combination is good.
                     match_count = 0
+                    added_states = 0
                     for i in range(len(combination)):
                         if matches[i][combination[i]]:
                             if LEQ_DEBUG:
                                 print "Structural mod count is:"
                                 print matches[i][combination[i]].structural_modification_count()
                             match_count += 1
+                            added_states += matches[i][combination[i]].structural_modification_state_count()
 
-                    # Ideally, we would consider more than just
-                    # pure match count here -- we should consider
-                    # which combination has the fewest introduced
-                    # states rather than the most matches.
-                    # Anyway, I'm not actually 100% sure that
-
-                    # there will be a difference for real-world
-                    # cases.
-                    # In theory there's a difference, e.g.
-                    # mapping {1, 2} to {{1, 2}, 0}.
-                    # (Obviously that is a contrived example)
-                    if match_count > max_matches:
+                    if match_count > max_matches or added_states < min_added_states:
                         # Create the unifier with this sequence of
                         # assignments:
                         this_branch_unifier = Unifier()
@@ -1345,11 +1342,13 @@ def leq_merge_internal_wrapper(A, B, options):
                             max_matches_assigned_branches = used_branches
                             max_matches_combination = combination
                             max_matches = match_count
+                            min_added_states = added_states
                             if LEQ_DEBUG:
                                 print "Set the max combination to ", max_matches_combination
                                 print "Assigned branches is ", max_matches_assigned_branches
                                 print "Remaining Branches is ", max_matches_remaining_branches
                                 print "Match count is ", match_count
+                                print "Added state count is ", min_added_states
                 #endfor combination in combinations
                 if LEQ_DEBUG:
                     print "Finished matching --- best assignemnt found is "
@@ -1376,18 +1375,20 @@ def leq_merge_internal_wrapper(A, B, options):
                     # like 1 + e
                     if B.has_first_edge():
                         for branch in max_matches_remaining_branches:
-                            result.add_from_node(B.options[branch], B.first_edge())
+                            result.add_from_node(A.options[branch], B.first_edge())
                     else:
                         # Can't do this since
                         # this has no first edge to build from.
                         result = None
                 else:  # branch_last_node is not None and branch_first_node is not None
                     for branch in max_matches_remaining_branches:
-                        result.add_between_nodes(B.options[branch], (branch_first_node, branch_last_node))
+                        result.add_between_nodes(A.options[branch], (branch_first_node, branch_last_node))
             else:
                 #endif B.isbranch()
                 assert False
-        elif A.issum():
+        elif A.issum() and should_split_sums:
+            if LEQ_DEBUG:
+                print "Entering a split sums case"
             # The concept here is to look at every combination
             # and see which one results in the fewest
             # structural additions --- use the one
@@ -1395,7 +1396,201 @@ def leq_merge_internal_wrapper(A, B, options):
             #  In practice, we aren't going to be able to look
             # at /every/ combination.  However, we try to approximate
             # that here.
-            pass # TODO
+
+            # If B is not a sum, turn it into a singleton sum
+            # so that the below algorithm can work on it.
+            if not B.issum():
+                B = Sum([B])
+
+            # All the sub-calls within this function should have
+            # should_split_sums set to false to avoid recursing here.
+
+            # Right now, this just passes onto the not should_split_sums
+            # case.  I'm expecting various splitting heuristics to be useful here.
+            result = leq_merge_internal(A, B, should_split_sums=False)
+        elif A.issum() and not should_split_sums:
+            # In this case, we unify as much as we can with B, without
+            # splitting the sum --- anything left over should
+            # be added as a nodification.
+            if not B.issum():
+                B = Sum([B])
+
+            # Iterate, unifying each respective element if possible.
+            # if a unification is not possible, stop, and add an
+            # extension instead.
+            a_index = 0
+            b_index = 0
+            has_match = True
+            unifier = Unifier()
+            while a_index < len(A.e1) and b_index < len(B.e1) and has_match:
+                if LEQ_DEBUG:
+                    print "Starting iteration for indexes ", a_index, b_index
+                    print "The heads are:", A.e1[a_index], B.e1[b_index]
+
+                if B.e1[b_index].isaccept() or B.e1[b_index].isend() and \
+                        not A.e1[a_index].isaccept() and not A.e1[a_index].isend():
+                    if LEQ_DEBUG:
+                        print "Failed to compute the sum --- can't convert to a modifier from a non-modifier"
+
+                # Do various checks to allow merging of modifiers
+                if a_index < len(A.e1) - 1 and b_index < len(B.e1) - 1 \
+                        and A.e1[a_index].isconst() and A.e1[a_index + 1].isaccept() \
+                        and B.e1[b_index].isconst() and not B.e1[b_index + 1].isaccept() \
+                        and not B.e1[b_index + 1].isend():
+                    if LEQ_DEBUG:
+                        print "A has a non-terminating accept, trying to create a branch for it..."
+                    # This is a 1 + a, and B only has 1 + ..., so we need to
+                    # insert a branch to make this unification.
+                    unifier.add_between_nodes(A.e1[a_index:a_index + 2], (B.e1[b_index].get_first_node(), B.e1[b_index + 1].get_last_node()))
+
+                    a_index += 2
+                    b_index += 1
+                    continue
+
+                if A.e1[a_index].isproduct():
+                    if LEQ_DEBUG:
+                        print "A is a product, trying to unify"
+                    # See if we can do a unification --- otherwise, we can just
+                    # insert this for 'free'.
+                    sub_unifier = leq_merge_internal(A.e1[a_index], B.e1[b_index])
+                    if sub_unifier is None:
+                        # Insert the product then move on.  There is a choice
+                        # here --- we could skip a lot of B.  However, we should
+                        # leave that choice to the splitting funciton.
+                        if LEQ_DEBUG:
+                            print "Product unification failed, inserting..."
+                        first_b_node = B.e1[b_index].get_first_node()
+                        if first_b_node is not None:
+                            unifier.add_between_nodes(A.e1[a_index], (first_b_node, first_b_node))
+                            a_index += 1
+                            continue
+                    else:
+                        # Otherwise, just continue on to the default case.
+                        pass
+
+                if B.e1[b_index].isproduct() and not A.e1[a_index].isproduct():
+                    if LEQ_DEBUG:
+                        print "Disabling a product in B"
+                        print "Product is ", B.e1[b_index]
+                    # Since A is not a product we need to skip this.
+                    first_edges = B.e1[b_index].first_edges()
+                    unifier.add_disabled_edges(first_edges)
+                    b_index += 1
+                    continue
+
+                if B.e1[b_index].isbranch() and not A.e1[a_index].isbranch():
+                    # Exploring arm to branch conversions:
+                    if LEQ_DEBUG:
+                        print "Exploring arm to branch conversions"
+                    # We have the opportunity to match to a branch here.
+                    # For each arm, see how much matching we get
+                    # --- the more the better.  Pick the match
+                    # that gets us the most distance through A.
+                    b_branch = B.e1[b_index]
+                    unifier_found = None
+                    unifier_size = -1
+                    for i in range(len(A.e1), a_index, -1):
+                        # This is a call with a different
+                        # sum in the new B, so we
+                        # are going to let it be split.
+                        # Not sure if it's a good idea to
+                        # do this here, since it does kind
+                        # of defeat the point.
+                        # Ultimately, I think that this
+                        # algorithm needs better approximations.
+                        # e.g. it performs really poorly
+                        # with 2 + a + e and {1, 2} + 1 + a + e
+                        if LEQ_DEBUG:
+                            print "Trying to unify arm to branch... (source call id is ", this_call_id, ")"
+
+                        # The branching case will explore each arm
+                        # of this sine B[b_index] is a branch and
+                        # A.e1[... is probably not (it will also
+                        # explore all the combinations even if it is.
+                        sub_unifier = leq_merge_internal(Sum(A.e1[a_index: i]).normalize(), B.e1[b_index])
+
+                        if LEQ_DEBUG:
+                            print "Internal check done --- at call ", this_call_id
+                        if sub_unifier is None or sub_unifier.has_structural_additions():
+                            # Ideally, we would allow for structural
+                            # additions, what we really want to check here
+                            # is that there isn't a whole huge chunk of
+                            # A that is hanging off the end.
+                            continue
+                        else:
+                            this_unifier_size = i - a_index
+                            if unifier_size > this_unifier_size:
+                                unifier_found = sub_unifier
+                                unifier_size = this_unifier_size
+
+                    if unifier_found is not None:
+                        unifier.unify_with(unifier_found)
+                        a_index += unifier_size
+                        # We've used the branch.
+                        b_index += 1
+                        continue
+
+                # We want to split sums again --- e.g. if the first element
+                # of this is {1 + 1, ...} we want to split the 1 + 1 since
+                # we hanven't done that yet.
+                if LEQ_DEBUG:
+                    print "No special cases found --- unifying the heads..."
+                sub_unifier = leq_merge_internal(A.e1[a_index], B.e1[a_index])
+                if sub_unifier is not None:
+                    unifier.unify_with(sub_unifier)
+                    a_index += 1
+                    b_index += 1
+                else:
+                    has_match = False
+
+            if a_index < len(A.e1):
+                # Do an insert for the rest.
+                if A.e1[a_index].isend() or A.e1[a_index].isaccept():
+                    # Can't start a modification with a modifier!
+                    unifier = None
+                else:
+                    last_node_matched = B.e1[b_index - 1].get_last_node()
+                    unifier.add_from_node(Sum(A.e1[a_index:]).normalize(), last_node_matched)
+
+            result = unifier
+        elif A.isproduct():
+            if B.isproduct():
+                if LEQ_DEBUG:
+                    print "Trying to unify products..."
+                sub_unifier = leq_merge_internal(A.e1, B.e1)
+
+                if sub_unifier is not None:
+                    result = sub_unifier
+            else:
+                # In theory we could do an insert, but in practice,
+                # we don't have enough context to do one.
+                result = None
+        elif B.isaccept():
+            # These handle cases where
+            assert False
+            result = None
+            compilation_statistics.sum_to_modifier_failed += 1
+        elif B.isend():
+            result = None
+            compilation_statistics.sum_to_modifier_failed += 1
+
+        # Sanity-check results.
+        if LEQ_DEBUG and result is not None:
+            print "Checked edge lenghts before return!"
+            all_edges_set = A.all_edges()
+            print "Have unified ", len(all_edges_set), "edges"
+            if result.all_from_edges_count() != len(all_edges_set):
+                print "Error, lengths differ: ", len(result.from_edges), len(all_edges_set)
+                print "From edges is ", result.from_edges
+                print "All edges is ", all_edges_set
+                print [str(x) for x in result.additions_between_nodes]
+                print result.from_edges
+                print all_edges_set
+                print A
+                print B
+                assert False
+            print "Returning a real result! (from call ", this_call_id, ")"
+            print "Result is: ", result
 
         # Handle the results:
         globals['comparison_cache'][cache_pointer] = result
@@ -1647,7 +1842,7 @@ def leq_internal_wrapper(A, B, options, from_symbols_lookup=None, to_symbols_loo
                     unifier = internal_unifier_creation()
                     unifier.add_edges(A.edges, B.edges, options)
                 elif use_leq_on_constants and B.val < A.val:
-                    # This case shouldn't be in use right now --- 
+                    # This case shouldn't be in use right now ---
                     # I'm pretty sure it's not valid.
                     assert False
                     result = True
@@ -1841,7 +2036,7 @@ def leq_internal_wrapper(A, B, options, from_symbols_lookup=None, to_symbols_loo
                             A.e1[a_index + 1].isproduct() and A.e1[a_index + 1].e1.isconst() and A.e1[a_index + 2].isconst() and \
                             not B.e1[b_index + 1].isproduct() and \
                             B.e1[b_index].isconst():
-                        # There is no way were are going to be able to 
+                        # There is no way were are going to be able to
                         # unify the next element in A.  See if we
                         # can create the branch instead:
                         sub_unifier = leq_internal(Sum(A.e1[a_index:a_index + 3]).normalize(), B.e1[b_index], options)
