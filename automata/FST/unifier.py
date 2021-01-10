@@ -114,9 +114,9 @@ class UnifierList(object):
         for unifier in self.unifiers:
             unifier.add_between_nodes(insert, edge_to_snip)
 
-    def add_from_node(self, branch, edges_after):
+    def add_from_node(self, branch, node_before):
         for unifier in self.unifiers:
-            unifier.add_from_node(branch, edges_after)
+            unifier.add_from_node(branch, node_before)
 
     def trim_unifier_list(self):
         if len(self.unifiers) > MAX_UNIFIERS:
@@ -248,13 +248,18 @@ class Unifier(object):
         assert not insert.has_accept_before_first_edge()
         assert insert.first_edge() is not None
 
-        self.additions_between_nodes.append(InsertModification(insert, edge_to_snip))
+        mod = InsertModification(insert, edge_to_snip)
+        symbol_only_reconfgiruation_modification_sanity_check(mod)
+        assert len(edge_to_snip) == 2
+        self.additions_between_nodes.append(mod)
 
-    def add_from_node(self, branch, edges_after):
+    def add_from_node(self, branch, node_before):
         assert not branch.has_accept_before_first_edge()
         assert branch.first_edge() is not None
 
-        self.additions_from_node.append(Modification(branch, edges_after))
+        mod = Modification(branch, node_before)
+        symbol_only_reconfgiruation_modification_sanity_check(mod)
+        self.additions_from_node.append(mod)
 
     def deep_clone(self):
         result = Unifier()
@@ -406,12 +411,18 @@ class Unifier(object):
         modifications = Modifications(self.additions_from_node, self.additions_between_nodes)
 
         # Set the initial symbols for the additions.
-        symbol_only_lookup_modifications_setup_lookup(modifications)
+        symbol_only_lookup_modifications_setup_lookup(modifications, symbol_lookup_1)
         # We also need to set the symbol reconfigurations
         # for the added edge.  These will be added
         # to the SymbolReconfiguration when the accelerator
         # is updated.
         symbol_only_reconfig_setup_modification_configurations(modifications, symbol_lookup_2)
+
+        # Sanity check the added modifications to make sure they're
+        # valid.
+        for mod in modifications.all_modifications():
+            symbol_only_reconfgiruation_modification_sanity_check(mod)
+
         return FST.SymbolReconfiguration(state_lookup, modifications)
 
     # There may be some issues surrounding the naming convention
@@ -565,9 +576,12 @@ class InsertModification(object):
         return False
 
 class Modification(object):
-    def __init__(self, algebra, edges_after):
+    def __init__(self, algebra, node_before):
         self.algebra = algebra
-        self.edges_after = edges_after
+        self.node_before = node_before
+        # Can't be none since we don#t know where to
+        # add this if it is"
+        assert node_before is not None
         self.symbol_lookup = None
         # This is used by symbol reconfiguration
         # generation to store the reconfiguraiton
@@ -583,7 +597,7 @@ class Modification(object):
         else:
             alg_str = str(self.algebra)
 
-        return alg_str + " Inserted before " + str(self.edges_after)
+        return alg_str + " Inserted after " + str(self.node_before)
 
     def isinsert(self):
         return False
@@ -967,7 +981,7 @@ def modification_state_assigment(state_lookup, symbol_lookup_1, symbol_lookup_2,
                 # one for the 'over_edge'.
                 rejoining_edge_symbol_set = symbol_lookup_2[over_edge]
             elif mod.is_loop():
-                incoming_node = mod.edges_after[0][0]
+                incoming_node = mod.node_before
 
                 # This could definitely be more efficient...
                 rejoining_edge_symbol_set = None
@@ -1013,18 +1027,65 @@ def symbol_only_reconfig_setup_modification_configurations(modifications, mod_lo
         mod.config_lookup = config_lookups
 
 
-## We don't actually need the symbols here --- we just need
-## to make sure that the symbols are disbaled.
-## Set each lookup to the empty list.  Think that might
-## cause problems elsewhere, but I can't quite remember.
-## We do this because the underlying accelerator shouldn't
-## have any additions activated by defualt.
-def symbol_only_lookup_modifications_setup_lookup(modifications):
+## This function needs to set the symbol lookups to:
+##      1. The same as the underlying nodes if those exist to
+##  preserve homogeneity.
+##      2. Empty otherwise to make sure they are disbaled
+##  in the underlying accelerator --- they can be appropriately
+##  programmed by the correct symbol-only-reconfiguration.
+def symbol_only_lookup_modifications_setup_lookup(modifications, underlying_symbol_lookup):
+    # Create a node-based symbol lookup -- assumes that the
+    # underlying graph is homogenous.
+    node_symbol_lookup = {}
+    for key in underlying_symbol_lookup:
+        (start, end) = key
+
+        if end in node_symbol_lookup:
+            assert node_symbol_lookup[end] == underlying_symbol_lookup[key]
+        else:
+            node_symbol_lookup[end] = underlying_symbol_lookup[key]
+
     for mod in modifications.additions_from_node + modifications.additions_between_nodes:
         edges = mod.algebra.all_edges()
+        last_mod_node = mod.algebra.get_last_node()
         result_symbol_lookup = {}
 
         for edge in edges:
-            result_symbol_lookup[edge] = []
+            start, end = edge
+            last_injection_node = None
+            if last_mod_node is not None and last_mod_node == end:
+                if mod.is_between_nodes():
+                    last_injection_node = mod.edge[1]
+                elif mod.is_loop():
+                    # Must be a loop.
+                    last_injection_node = mod.node_before
+                else:
+                    # Injection after --- this has a +e at the end
+                    # so won't need the unification with the
+                    # underlying accelerator.
+                    pass
+
+            if last_injection_node is not None:
+                result_symbol_lookup[edge] = node_symbol_lookup[last_injection_node]
+            else:
+                # This is an edge that will be activated by
+                # the reconfiguration, so it can be empty.
+                result_symbol_lookup[edge] = []
 
         mod.symbol_lookup = result_symbol_lookup
+
+
+# This looks at the nodes, and makes sure that anything
+# that is added can be disabled while preserving hmogeneity.
+# That is, it can't just be an edge between two existing nodes,
+# but must introduce at least one node itself.
+def symbol_only_reconfgiruation_modification_sanity_check(mod):
+    # Note that this is being broadly applied here, but shouldn't
+    # apply as a check under certain option configurations, e.g.
+    # overapproximation rules.
+    if ((mod.is_loop() or mod.is_between_nodes()) and len(mod.algebra.all_edges()) <= 1) or \
+            (not mod.is_between_nodes() and len(mod.algebra.all_edges()) == 0):
+        print "Offending mod is :"
+        print mod
+        print mod.algebra.all_edges()
+        assert False
