@@ -39,6 +39,7 @@ types_differ = 0
 accept_to_non_accept = 0
 const_to_sum_failed = 0
 sum_to_const_failed = 0
+sum_to_modifier_failed = 0
 
 # LEQ-related algorithms failure reasons:
 no_branch_over_node_mmodifiers = 0

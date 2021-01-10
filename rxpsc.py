@@ -376,6 +376,7 @@ def print_leq_failure_reasons(options):
         print prefix, "Accept to non-accept", compilation_statistics.accept_to_non_accept
         print prefix, "Const to Sum", compilation_statistics.const_to_sum_failed
         print prefix, "Sum to Sum", compilation_statistics.sum_to_const_failed
+        print prefix, "Sum to modifier", compilation_statistics.sum_to_modifier_failed
 
         print prefix, "Can't Insert Branch over node modifier/complex branch", compilation_statistics.no_branch_over_node_mmodifiers
 
