@@ -6,6 +6,9 @@ class GenerationFailureReason(object):
     def __init__(self, reason):
         self.reason = reason
 
+    def __str__(self):
+        return "FAILED: " + self.reason
+
 def expand_ranges(ranges):
     ranges = list(ranges)
     result = []
