@@ -605,8 +605,6 @@ def full_graph_for(algebra, symbol_lookup):
 
     for (from_n, to_n) in set(edges):
         if from_n == start_state and start_state != 0:
-            if from_n == 97 and to_n == 108:
-                print "Found node you are looking for"
             symbol_lookup[(0, to_n)] = symbol_lookup[(from_n, to_n)]
             del symbol_lookup[(from_n, to_n)]
             edges.remove((from_n, to_n))
@@ -621,7 +619,24 @@ def full_graph_for(algebra, symbol_lookup):
     for edge in edges:
         assert edge in symbol_lookup
 
-    return SimpleGraph(nodes, edges, symbol_lookup, accepting_states, start_state)
+    # Need to find the last node in the graph --- there should
+    # be a single one for each of these graphs, we need the last
+    # node to be able to splice into the underlying accelerator.
+    # Do that with a quick DFS.
+    result_graph = SimpleGraph(nodes, edges, symbol_lookup, accepting_states, start_state)
+    node_stack = [start_state]
+    nlookup = result_graph.neighbors_lookup()
+    end_nodes = set()
+    while len(node_stack) > 0:
+        head = node_stack.pop()
+        next_nodes = nlookup[head]
+        if len(next_nodes) == 0:
+            end_nodes.add(head)
+        node_stack += list(next_nodes)
+
+    # I think this wouldn't be too hard to support if theres more
+    # than one node.
+    return result_graph, end_nodes
 
 # This generates a graph for a linear section of algebra.
 # It could be a full inverse to the algebra generation algorithm,
@@ -683,7 +698,7 @@ def graph_for(algebra, symbol_lookup):
     elif algebra.isproduct():
         # Do this by computing the subgraph, then linking the
         # last node to the first node.
-        subgraph, end_nodes = graph_for(algebra.e1, symbol_lookup)
+        subgraph, end_nodes = full_graph_for(algebra.e1, symbol_lookup)
         nodes = subgraph.nodes
         edges = subgraph.edges
         result_lookup = subgraph.symbol_lookup
@@ -1117,7 +1132,13 @@ def leq_merge(A, B, options):
     assert options.use_structural_change
     result = leq_merge_internal_wrapper(A, B, options)
 
-    return result
+    # We want this to be a dropin for leq_unify when requested,
+    # so we need to return the same types even it this
+    # is nor currently using lists of unifiers.
+    if result is None:
+        return None
+    else:
+        return [result]
 
 
 def leq_merge_internal_wrapper(A, B, options):
@@ -1214,28 +1235,45 @@ def leq_merge_internal_wrapper(A, B, options):
                 if first_edge is None:
                     result = None
                 else:
+                    # I think this isn't going to work at all ---
+                    # won't preserve homogeneity.
+                    assert False
                     first_node = B.get_first_node()
 
                     result = Unifier()
                     result.add_disabled_edges(first_edge)
                     result.add_from_node(first_node)
         elif A.isbranch() or B.isbranch():
+            # This can't handle modifiers --- nor should it, they
+            # won't mach within this case.
             if LEQ_DEBUG:
                 print "A is a branch"
+            # There are certain conditions where it is not valid
+            # to form a branch, e.g. if one of the branches
+            # starts with an accept --- in that case, we
+            # can't unify here anyway.
+            processible = True
+            if B.ismodifier() or A.ismodifier():
+                processible = False
+            if A.has_accept_before_first_edge():
+                assert not A.isbranch()
+                processible = False
+            if B.has_accept_before_first_edge():
+                assert not B.isbranch()
+                processible = False
 
-            if not B.isbranch():
-                # We can add in the extra branches overtop
-                # of most components. (a and e excluded)
-                # Let the branch case handle that by making this
-                # into a branch --- since it'll be a singleton
-                # branch, we need to not normalize it.
-                B = Branch([B])
+            if processible:
+                if not B.isbranch():
+                    # We can add in the extra branches overtop
+                    # of most components. (a and e excluded)
+                    # Let the branch case handle that by making this
+                    # into a branch --- since it'll be a singleton
+                    # branch, we need to not normalize it.
+                    B = Branch([B])
 
-            if not A.isbranch():
-                A = Branch([A])
+                if not A.isbranch():
+                    A = Branch([A])
 
-            # Here for show -- but should always be true.
-            if B.isbranch():
                 # Try to do an elementwise matching
                 # within the branch.   This is copied
                 # from the leq function with heavy modification.
@@ -1375,17 +1413,25 @@ def leq_merge_internal_wrapper(A, B, options):
                     # like 1 + e
                     if B.has_first_edge():
                         for branch in max_matches_remaining_branches:
-                            result.add_from_node(A.options[branch], B.first_edge())
+                            result.add_from_node(A.options[branch], B.get_first_node())
                     else:
                         # Can't do this since
                         # this has no first edge to build from.
                         result = None
                 else:  # branch_last_node is not None and branch_first_node is not None
                     for branch in max_matches_remaining_branches:
-                        result.add_between_nodes(A.options[branch], (branch_first_node, branch_last_node))
+                        if A.options[branch].state_count() > 2:
+                            result.add_between_nodes(A.options[branch], (branch_first_node, branch_last_node))
+                        else:
+                            # Can't insert a branch with just
+                            # one edge --- it would be impossible
+                            # for the original algebra to disable
+                            # it.
+                            result = None
+                            break
             else:
-                #endif B.isbranch()
-                assert False
+                #endif processble
+                result = None
         elif A.issum() and should_split_sums:
             if LEQ_DEBUG:
                 print "Entering a split sums case"
@@ -1433,15 +1479,15 @@ def leq_merge_internal_wrapper(A, B, options):
                         print "Failed to compute the sum --- can't convert to a modifier from a non-modifier"
 
                 # Do various checks to allow merging of modifiers
-                if a_index < len(A.e1) - 1 and b_index < len(B.e1) - 1 \
-                        and A.e1[a_index].isconst() and A.e1[a_index + 1].isaccept() \
+                if a_index < len(A.e1) - 2 and b_index < len(B.e1) - 1 \
+                        and A.e1[a_index].isconst() and A.e1[a_index + 1].isaccept() and A.e1[a_index + 2].isconst() \
                         and B.e1[b_index].isconst() and not B.e1[b_index + 1].isaccept() \
                         and not B.e1[b_index + 1].isend():
                     if LEQ_DEBUG:
                         print "A has a non-terminating accept, trying to create a branch for it..."
                     # This is a 1 + a, and B only has 1 + ..., so we need to
                     # insert a branch to make this unification.
-                    unifier.add_between_nodes(A.e1[a_index:a_index + 2], (B.e1[b_index].get_first_node(), B.e1[b_index + 1].get_last_node()))
+                    unifier.add_between_nodes(Sum(A.e1[a_index:a_index + 3]).normalize(), (B.e1[b_index].get_first_node(), B.e1[b_index + 1].get_last_node()))
 
                     a_index += 2
                     b_index += 1
@@ -1535,7 +1581,7 @@ def leq_merge_internal_wrapper(A, B, options):
                 # we hanven't done that yet.
                 if LEQ_DEBUG:
                     print "No special cases found --- unifying the heads..."
-                sub_unifier = leq_merge_internal(A.e1[a_index], B.e1[a_index])
+                sub_unifier = leq_merge_internal(A.e1[a_index], B.e1[b_index])
                 if sub_unifier is not None:
                     unifier.unify_with(sub_unifier)
                     a_index += 1
@@ -1550,7 +1596,10 @@ def leq_merge_internal_wrapper(A, B, options):
                     unifier = None
                 else:
                     last_node_matched = B.e1[b_index - 1].get_last_node()
-                    unifier.add_from_node(Sum(A.e1[a_index:]).normalize(), last_node_matched)
+                    if last_node_matched is None:
+                        unifier = None
+                    else:
+                        unifier.add_from_node(Sum(A.e1[a_index:]).normalize(), last_node_matched)
 
             result = unifier
         elif A.isproduct():
@@ -1565,14 +1614,22 @@ def leq_merge_internal_wrapper(A, B, options):
                 # In theory we could do an insert, but in practice,
                 # we don't have enough context to do one.
                 result = None
+        elif (A.isbranch() or B.isbranch()) and (A.ismodifier() or B.ismodifier()):
+            # This is to catch the remainder of the branch-to-branch
+            # case that can't be handled.
+            result = None
         elif B.isaccept():
             # These handle cases where
             assert False
             result = None
             compilation_statistics.sum_to_modifier_failed += 1
         elif B.isend():
+            assert False
             result = None
             compilation_statistics.sum_to_modifier_failed += 1
+        else:
+            # Every case should be handled.
+            assert False
 
         # Sanity-check results.
         if LEQ_DEBUG and result is not None:
@@ -1946,7 +2003,7 @@ def leq_internal_wrapper(A, B, options, from_symbols_lookup=None, to_symbols_loo
                     A.e1[0].isconst() and A.e1[1].isaccept() and A.e1[2].isend() and \
                     not (len(B.e1) >= 3 and B.e1[0].isconst() and B.e1[1].isaccept() and B.e1[2].isend()):
                 unifier = internal_unifier_creation()
-                unifier.add_from_node(A, B.first_edge())
+                unifier.add_from_node(A, B.get_first_node())
                 result = True
             # It would be good if we could handle this case, but it is a bit more
             # complicated, becuase it requires a bit more complex structural change.
@@ -2005,7 +2062,7 @@ def leq_internal_wrapper(A, B, options, from_symbols_lookup=None, to_symbols_loo
                     # A into the algebra (that will hopefully be picked up bu the above case
                     # when we need it to.
                     if not options.correct_mapping and options.use_structural_change and A.e1[a_index].isproduct() and not B.e1[b_index].isproduct() and B.e1[b_index].first_edge():
-                        unifier.add_from_node(A.e1[a_index], B.e1[b_index].first_edge())
+                        unifier.add_from_node(A.e1[a_index], B.e1[b_index].get_first_node())
                         a_index += 1
                         continue
 
@@ -2411,7 +2468,7 @@ def apply_structural_transformations_internal(simple_graph, additions, options):
                 print addition
             # Then, insert this by generating new edge numbers and
             # putting it in with the appropriate symbol set.
-            new_graph, last_nodes = graph_for(addition.algebra, addition.symbol_lookup)
+            new_graph, last_nodes = full_graph_for(addition.algebra, addition.symbol_lookup)
 
             # check that we are only inserting things.
             og = old_graph.clone()
@@ -2421,18 +2478,9 @@ def apply_structural_transformations_internal(simple_graph, additions, options):
                 (before, after) = addition.edge
                 old_graph = sjss.splice_between(og, before, after, new_graph, last_nodes)
             else:
-                # Get the edges that this has to be before
-                edges_after = addition.edges_after
-                # Now, get the node that leads to the 'edges after',
-                # and insert this one before all the edges after.
-                nodes_before = list(sjss.get_node_before_edges(edges_after))
-
-                # I don't think we currently support adding things
-                # with many different start nodes --- not sure how
-                # that would work.
-                assert len(nodes_before) == 1
-
-                old_graph = sjss.splice_after(og, nodes_before[0], new_graph)
+                # Get the nodes that this has to go after.
+                node_before = addition.node_before
+                old_graph = sjss.splice_after(og, node_before, new_graph)
 
             if group_compiler.DEBUG_GENERATE_BASE:
                 # Ensure that all the new lookups are in the new
